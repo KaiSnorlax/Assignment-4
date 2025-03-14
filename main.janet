@@ -16,59 +16,54 @@
 
 (defn IfC [test then else]
   (struct :type 'IfC
-         :test test
-         :then then
-         :else else))
-
-(defn DeclareC [bindings body]
-  (struct :type 'DeclareC
-         :bindings bindings
-         :body body))
+          :test test
+          :then then
+          :else else))
 
 (defn ProcC [params body]
   (struct :type 'ProcC
-         :params params
-         :body body))
+          :params params
+          :body body))
 
 (defn AppC [fun args]
   (struct :type 'AppC
-         :fun fun
-         :args args))
+          :fun fun
+          :args args))
 
 (defn Binding [name value]
   (struct :type 'Binding
-         :name name
-         :value value))
+          :name name
+          :value value))
 
 # Value representations
 (defn NumV [n]
   (struct :type 'NumV
-         :value n))
+          :value n))
 
 (defn BoolV [b]
   (struct :type 'BoolV
-         :value b))
+          :value b))
 
 (defn StrV [s]
   (struct :type 'StrV
-         :value s))
+          :value s))
 
 (defn CloV [params body env]
   (struct :type 'CloV
-         :params params
-         :body body
-         :env env))
+          :params params
+          :body body
+          :env env))
 
 (defn PrimV [op proc]
   (struct :type 'PrimV
-         :op op
-         :proc proc))
+          :op op
+          :proc proc))
 
 # ==================
 # Parser
 # ==================
 
-# Check if a symbol is a reserved word 
+# Check if a symbol is a reserved word
 (defn reserved-word? [sym]
   (case sym
     'if true
@@ -86,11 +81,31 @@
   (case (type sexp)
     :string (StrC sexp)
     :symbol (IdC sexp)
-    :number (NumC sexp)))
+    :number (NumC sexp)
+    :tuple (match sexp
+             ['if c t e] (IfC (parse c) (parse t) (parse e))
+             ['proc [tuple? args] body] (ProcC
+                                          (tuple
+                                            (each arg args
+                                              (case (type arg)
+                                                :symbol (IdC arg)
+                                                (error "arg not a symbol"))))
+                                          (parse body)))))
 
 # ==================
 # Interpreter
 # ==================
+
+(defn lookup [x env]
+  (defn lookup-r [x binds]
+    (match binds
+      [{:type _ :name n :value v} & rest] (cond
+                                            (= n x) v
+                                            (lookup-r x rest))
+      [{:type _ :name n :value v}] (cond
+                                     (= n x) v
+                                     (error "Unbound identifier"))))
+  (lookup-r x env))
 
 # Interprets an AST
 (defn interp [exp]
@@ -116,7 +131,7 @@
     'StrV (string "\"" (get v :value) "\"")
     'CloV "#<procedure>"
     'PrimV "#<primop>"
-    (error-qwjz (string "Unknown value type: " (get v :type)))))
+    (error (string "Unknown value type: " (get v :type)))))
 
 
 # ==================
@@ -126,41 +141,41 @@
 # Creates a primitive binary numeric operations
 (defn make-num-binop [op f error-msg]
   (PrimV op
-    (fn [args]
-      (if (= (length args) 2)
-          (let [v1 (get args 0)
-                v2 (get args 1)]
-            (if (and (= (get v1 :type) 'NumV) 
-                     (= (get v2 :type) 'NumV))
-                (let [n1 (get v1 :value)
-                      n2 (get v2 :value)]
-                  (if (and (= op '/) (= n2 0))
-                      (error-qwjz "Division by zero")
-                      (NumV (f n1 n2))))
-                (error-qwjz error-msg)))
-          (error-qwjz (string op " expects 2 arguments, got " (length args)))))))
+         (fn [args]
+           (if (= (length args) 2)
+             (let [v1 (get args 0)
+                   v2 (get args 1)]
+               (if (and (= (get v1 :type) 'NumV)
+                        (= (get v2 :type) 'NumV))
+                 (let [n1 (get v1 :value)
+                       n2 (get v2 :value)]
+                   (if (and (= op '/) (= n2 0))
+                     (error "Division by zero")
+                     (NumV (f n1 n2))))
+                 (error error-msg)))
+             (error (string op " expects 2 arguments, got " (length args)))))))
 
 # Creates a primitive comparison operation (like <=, >=)
 (defn make-comparison [op f error-msg]
   (PrimV op
-    (fn [args]
-      (if (= (length args) 2)
-          (let [v1 (get args 0)
-                v2 (get args 1)]
-            (if (and (= (get v1 :type) 'NumV)
-                     (= (get v2 :type) 'NumV))
-                (BoolV (f (get v1 :value) (get v2 :value)))
-                (error-qwjz error-msg)))
-          (error-qwjz (string op " expects 2 arguments, got " (length args)))))))
+         (fn [args]
+           (if (= (length args) 2)
+             (let [v1 (get args 0)
+                   v2 (get args 1)]
+               (if (and (= (get v1 :type) 'NumV)
+                        (= (get v2 :type) 'NumV))
+                 (BoolV (f (get v1 :value) (get v2 :value)))
+                 (error error-msg)))
+             (error (string op " expects 2 arguments, got " (length args)))))))
 
 # Primop to print a value to the console
 (defn println-op [args]
   (if (= (length args) 1)
-      (do
-        (print (serialize (get args 0)))
-        (print "\n")
-        (BoolV true))
-      (error-qwjz "println expects 1 argument")))
+    (do
+      (print (serialize (get args 0)))
+      (print "\n")
+      (BoolV true))
+    (error "println expects 1 argument")))
 
 
 # Primop to read a number from the console
@@ -170,7 +185,7 @@
     (let [input (string/trim (file/read stdin :line))]
       (if-let [num (scan-number input)]
         (NumV num)
-        (error-qwjz "Not a valid real number")))))
+        (error "Not a valid real number")))))
 
 # Primop to read a string from the console
 (defn read-str-op [args]
@@ -182,8 +197,8 @@
 # Primop to execute a seq of expressions and return the last value
 (defn seq-op [args]
   (if (> (length args) 0)
-      (get args (- (length args) 1))
-      (error-qwjz "need at least one expression")))
+    (get args (- (length args) 1))
+    (error "need at least one expression")))
 
 
 # Primop to concatenate values into a single string
@@ -192,7 +207,6 @@
   (each arg args
     (set result (string result (serialize arg))))
   (StrV result))
-
 
 
 # ==================
@@ -263,3 +277,9 @@
 (assert (= (serialize (BoolV true)) "true"))
 (assert (= (serialize (BoolV false)) "false"))
 (assert (= (serialize (StrV "hello")) "\"hello\""))
+
+# Test the lookup function
+(let [env (tuple (Binding 'x 1) (Binding 'y 2) (Binding 'z 3))]
+  (assert (= (lookup 'y env) 2))
+  (assert (= (lookup 'x env) 1))
+  (assert (= (lookup 'z env) 3)))
